@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Stats</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        body {
+            background-color: #f8f9fa;
+            color: #333;
+            font-family: system-ui, sans-serif;
+        }
+
+        .container {
+            margin-top: 50px;
+        }
+
+        .card {
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        h1,
+        h2 {
+            color: #0d6efd;
+        }
+
+        .tab-content {
+            background: #fff;
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+        }
+
+        .badge-crossref { background-color: #198754; }
+        .badge-pdf { background-color: #0d6efd; }
+        .badge-proxy { background-color: #adb5bd; }
+    </style>
+</head>
+
+<body>
+    <div class="container mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-11">
+                <div class="card p-4 mb-4">
+                    <h1 class="text-center mb-2">Paper Stats</h1>
+                    <p class="text-center text-muted mb-4">How long do journals take from submission to acceptance?</p>
+
+                    {% with messages = get_flashed_messages() %}
+                    {% for message in messages %}
+                    <div class="alert alert-warning">{{ message }}</div>
+                    {% endfor %}
+                    {% endwith %}
+
+                    <form method="POST" action="/run">
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg" {% if job.running %}disabled{% endif %}>
+                                {{ 'Analysis running...' if job.running else 'Fetch Data & Run Analysis' }}
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="progress-container" class="mt-3" {% if not job.running %}hidden{% endif %}>
+                        <p class="text-center text-muted mb-1" id="progress-text">{{ job.message }}</p>
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                                style="width: {{ (job.progress * 100) | int }}%;" id="progress-bar">
+                                {{ (job.progress * 100) | int }}%
+                            </div>
+                        </div>
+                    </div>
+                    {% if not job.running and job.message.startswith('Analysis failed') %}
+                    <div class="alert alert-danger mt-3">{{ job.message }}</div>
+                    {% endif %}
+                    {% if results %}
+                    <p class="text-center text-muted small mt-3 mb-0">
+                        Last run {{ results.finished }}: {{ papers | length }} papers,
+                        {{ results.config.num_samples }} per journal, published {{ results.config.year_start }}–{{ results.config.year_end }}.
+                        <a href="/results.csv">Download CSV</a>
+                    </p>
+                    {% endif %}
+                </div>
+
+                <!-- Tabs -->
+                <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats"
+                            type="button" role="tab" aria-controls="stats" aria-selected="true">Statistics</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="details-tab" data-bs-toggle="tab" data-bs-target="#details"
+                            type="button" role="tab" aria-controls="details" aria-selected="false">Paper
+                            Details</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config"
+                            type="button" role="tab" aria-controls="config" aria-selected="false">Configuration</button>
+                    </li>
+                </ul>
+
+                <div class="tab-content border border-top-0 p-4" id="mainTabsContent">
+
+                    <!-- Stats Tab -->
+                    <div class="tab-pane fade show active" id="stats" role="tabpanel" aria-labelledby="stats-tab">
+                        {% if papers %}
+                        <div id="review-plot" class="mb-4"></div>
+                        <p class="text-muted small">
+                            <strong>Measured</strong> = received → accepted, as printed by the journal (Crossref
+                            article history, or the first page of the arXiv PDF).
+                            <strong>Proxy</strong> = first arXiv version → journal publication; only a rough upper
+                            bound, since many authors post after acceptance.
+                        </p>
+                        <table class="table table-sm table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Journal</th>
+                                    <th class="text-end">Papers</th>
+                                    <th class="text-end">Measured</th>
+                                    <th class="text-end">Median review (days)</th>
+                                    <th class="text-end">IQR (days)</th>
+                                    <th class="text-end">Median proxy (days)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {# + 0.5 rounds half up; Jinja's round() rounds half to even (288.5 -> 288) #}
+                                {% for s in summary %}
+                                <tr>
+                                    <td>{{ s.journal }}</td>
+                                    <td class="text-end">{{ s.papers }}</td>
+                                    <td class="text-end">{{ s.measured }}</td>
+                                    <td class="text-end fw-bold">{{ (s.review[1] + 0.5) | int if s.review[1] is not none else '–' }}</td>
+                                    <td class="text-end">{{ '%d–%d' % (s.review[0] + 0.5, s.review[2] + 0.5) if s.review[0] is not none else '–' }}</td>
+                                    <td class="text-end">{{ (s.proxy[1] + 0.5) | int if s.proxy[1] is not none else '–' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <div class="text-center py-5 text-muted">
+                            <p>No statistics available. Please run the analysis first.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Paper Details Tab -->
+                    <div class="tab-pane fade" id="details" role="tabpanel" aria-labelledby="details-tab">
+                        {% if papers %}
+                        <h4>Analyzed Papers by Journal</h4>
+                        {% for s in summary %}
+                        <div class="mb-4">
+                            <h5 class="text-primary border-bottom pb-2">{{ s.journal }}</h5>
+                            <table class="table table-hover table-sm table-bordered mt-2">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="text-center">#</th>
+                                        <th>Title</th>
+                                        <th>Source</th>
+                                        <th>Received</th>
+                                        <th>Accepted</th>
+                                        <th>Review</th>
+                                        <th>arXiv v1</th>
+                                        <th>Published</th>
+                                        <th>Proxy</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for p in papers if p.journal == s.journal %}
+                                    <tr>
+                                        <td class="text-center text-muted fw-bold">{{ loop.index }}</td>
+                                        <td><a href="{{ p.link }}" target="_blank" rel="noopener">{{ p.title }}</a></td>
+                                        <td><span class="badge badge-{{ p.source }}">{{ p.source }}</span></td>
+                                        <td class="text-nowrap">{{ p.received or '' }}</td>
+                                        <td class="text-nowrap">{{ p.accepted or '' }}</td>
+                                        <td class="text-center fw-bold">{{ '%dd' % p.review_days if p.review_days else '–' }}</td>
+                                        <td class="text-nowrap">{{ p.submitted }}</td>
+                                        <td class="text-nowrap">{{ p.published }}</td>
+                                        <td class="text-center">{{ '%dd' % p.proxy_days if p.proxy_days else '–' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="text-center py-5 text-muted">
+                            <p>No papers available. Please run the analysis first.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Configuration Tab -->
+                    <div class="tab-pane fade" id="config" role="tabpanel" aria-labelledby="config-tab">
+                        <form action="/save_config" method="POST" class="mb-5">
+                            <h4>Analysis Parameters</h4>
+                            <div class="mb-3">
+                                <label for="num_samples" class="form-label">Number of Papers per Journal</label>
+                                <input type="number" class="form-control" id="num_samples" name="num_samples"
+                                    value="{{ config.num_samples }}" min="1">
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col">
+                                    <label for="year_start" class="form-label">Published From (Year)</label>
+                                    <input type="number" class="form-control" id="year_start" name="year_start"
+                                        value="{{ config.year_start }}">
+                                </div>
+                                <div class="col">
+                                    <label for="year_end" class="form-label">Published Until (Year)</label>
+                                    <input type="number" class="form-control" id="year_end" name="year_end"
+                                        value="{{ config.year_end }}">
+                                </div>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="mine_pdfs" name="mine_pdfs"
+                                    {% if config.mine_pdfs %}checked{% endif %}>
+                                <label class="form-check-label" for="mine_pdfs">
+                                    Read dates from arXiv PDFs when Crossref has none (needed for IEEE journals;
+                                    slower, about 3 s per paper the first time)
+                                </label>
+                            </div>
+                            <button type="submit" class="btn btn-success">Save Configuration</button>
+                        </form>
+
+                        <div class="mt-4 text-start">
+                            <h4>Monitored Journals</h4>
+                            <p class="text-muted"><small>Modify <code>list_of_journals.txt</code> to add or remove
+                                    journals from this list. Names must match the journal's official title.</small></p>
+                            <ul class="list-group">
+                                {% for j in journals %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    {{ j }}
+                                    <span>
+                                        <a href="https://duckduckgo.com/?q=!ducky+{{ j | urlencode }}+journal+official+website"
+                                            target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary me-2">Website</a>
+                                    </span>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if papers %}
+    <script id="papers-data" type="application/json">{{ papers | tojson }}</script>
+    <script id="order-data" type="application/json">{{ summary | map(attribute='journal') | list | tojson }}</script>
+    <script>
+        const papers = JSON.parse(document.getElementById('papers-data').textContent);
+        // Plotly draws the first category at the bottom, so reverse to put the fastest journal on top
+        const order = JSON.parse(document.getElementById('order-data').textContent).reverse();
+
+        const traces = [
+            { key: 'review_days', name: 'Measured: received → accepted', color: '#0d6efd' },
+            { key: 'proxy_days', name: 'Proxy: arXiv v1 → published', color: '#adb5bd' },
+        ].map(t => {
+            const rows = papers.filter(p => p[t.key]);
+            return {
+                type: 'box', orientation: 'h', name: t.name,
+                x: rows.map(p => p[t.key]), y: rows.map(p => p.journal), text: rows.map(p => p.title),
+                boxpoints: 'all', jitter: 0.5, pointpos: 0, marker: { color: t.color, size: 4 },
+                hoverinfo: 'x+text',
+            };
+        });
+
+        Plotly.newPlot('review-plot', traces, {
+            title: 'Review Time per Journal (days)',
+            boxmode: 'group',
+            height: 120 + 70 * order.length,
+            xaxis: { title: 'Days', rangemode: 'tozero' },
+            yaxis: { automargin: true, categoryorder: 'array', categoryarray: order },
+            legend: { orientation: 'h', y: -0.08 },
+            margin: { t: 50 },
+        }, { responsive: true });
+
+        // Fix plot resizing when tab becomes visible
+        document.getElementById('stats-tab').addEventListener('shown.bs.tab', function () {
+            Plotly.Plots.resize('review-plot');
+        });
+    </script>
+    {% endif %}
+
+    {% if job.running %}
+    <script>
+        const bar = document.getElementById('progress-bar');
+        const text = document.getElementById('progress-text');
+        const poll = setInterval(async () => {
+            const s = await (await fetch('/status')).json();
+            const pct = Math.floor(s.progress * 100);
+            bar.style.width = pct + '%';
+            bar.innerText = pct + '%';
+            text.innerText = s.message;
+            if (!s.running) {
+                clearInterval(poll);
+                location.reload();
+            }
+        }, 2000);
+    </script>
+    {% endif %}
+</body>
+
+</html>
