@@ -49,6 +49,8 @@ venv/bin/pip install -r requirements.txt
 venv/bin/python server.py
 ```
 
+A virtual environment stops working if its folder is moved or renamed, because it stores absolute paths. If that happens, delete `venv` and run the first two commands again.
+
 Open http://127.0.0.1:5000 and click **Fetch Data & Run Analysis**. The progress bar shows which journal is being processed.
 
 The first run is slow on purpose. arXiv asks for one request every 3 seconds, and each IEEE paper needs its PDF downloaded. With the bundled 12 journals × 25 papers it took 32 minutes. Lookups are cached in `cache.json`, so a rerun took under 2 minutes and only fetches new papers.
