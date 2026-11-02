@@ -2,6 +2,19 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- Read-only mode for public deployments. On Vercel (`VERCEL=1`) or with `READ_ONLY=1`, the run and save buttons are hidden, POST requests get 403, and the committed results are served.
+- `.vercelignore` and README instructions for publishing on Vercel.
+- Offline Flask route checks for read-only behavior and configuration bounds.
+
+### Changed
+- `results.json` is committed, because it is what the website serves.
+- Crossref publication dates now prefer online, print, published, and issued fields; metadata creation dates are not treated as publication dates.
+- Configuration inputs are bounded, and completed results replace the previous JSON file atomically.
+- Clarify that the arXiv-to-publication proxy has no fixed direction relative to review time.
+
 ## [0.2.0] - 2026-10-18
 
 ### Added

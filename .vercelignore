@@ -1,0 +1,9 @@
+# Deploy only what the read-only site needs (the CLI ignores .gitignore, so venv would be uploaded)
+/*
+!server.py
+!collector.py
+!templates
+!requirements.txt
+!results.json
+!config.json
+!list_of_journals.txt

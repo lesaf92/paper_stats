@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, flash, jsonify, redirect, url_for, Response
+from flask import Flask, render_template, request, flash, jsonify, redirect, url_for, Response, abort
 from datetime import datetime
 import csv
 import io
@@ -16,8 +16,14 @@ CONFIG_FILE = os.path.join(BASE_DIR, 'config.json')
 JOURNALS_FILE = os.path.join(BASE_DIR, 'list_of_journals.txt')
 RESULTS_FILE = os.path.join(BASE_DIR, 'results.json')
 DEFAULT_CONFIG = {"num_samples": 10, "year_start": 2020, "year_end": 2025, "mine_pdfs": True}
+MAX_SAMPLES_PER_JOURNAL = 100
+MIN_PUBLICATION_YEAR = 1900
+MAX_PUBLICATION_YEAR = datetime.now().year + 1
 CSV_FIELDS = ['journal', 'title', 'doi', 'link', 'source', 'received', 'accepted', 'review_days',
               'submitted', 'published', 'proxy_days']
+# Public deployments only serve the committed results.json. On Vercel (which sets VERCEL=1) a run
+# would outlive the function and couldn't save anything, and strangers shouldn't start 30-minute jobs.
+READ_ONLY = os.environ.get('READ_ONLY') == '1' or os.environ.get('VERCEL') == '1'
 
 job = {'running': False, 'progress': 0.0, 'message': ''}
 job_lock = threading.Lock()
@@ -57,9 +63,11 @@ def run_job(config, journals):
     try:
         papers = collector.collect(journals, config,
                                    lambda fraction, message: job.update(progress=fraction, message=message))
-        with open(RESULTS_FILE, 'w') as f:
+        tmp = RESULTS_FILE + '.tmp'
+        with open(tmp, 'w') as f:
             json.dump({'finished': datetime.now().isoformat(timespec='seconds'), 'config': config,
                        'papers': papers}, f, indent=1)
+        os.replace(tmp, RESULTS_FILE)
     except Exception as e:
         job['message'] = f'Analysis failed: {e}'
         raise
@@ -67,12 +75,20 @@ def run_job(config, journals):
         job['running'] = False
 
 
+@app.before_request
+def block_writes_when_read_only():
+    if READ_ONLY and request.method == 'POST':
+        abort(403)
+
+
 @app.route('/')
 def index():
     results = load_results()
     papers = results['papers'] if results else None
     return render_template('index.html', papers=papers, results=results, job=job, journals=load_journals(),
-                           config=load_config(), summary=collector.summarize(papers) if papers else None)
+                           config=load_config(), summary=collector.summarize(papers) if papers else None,
+                           read_only=READ_ONLY, max_samples=MAX_SAMPLES_PER_JOURNAL,
+                           min_year=MIN_PUBLICATION_YEAR, max_year=MAX_PUBLICATION_YEAR)
 
 
 @app.route('/run', methods=['POST'])
@@ -109,14 +125,23 @@ def results_csv():
 
 @app.route('/save_config', methods=['POST'])
 def save_config_route():
-    config = {
-        "num_samples": request.form.get('num_samples', 10, type=int),
-        "year_start": request.form.get('year_start', 2020, type=int),
-        "year_end": request.form.get('year_end', 2025, type=int),
-        "mine_pdfs": 'mine_pdfs' in request.form,
-    }
-    if config['num_samples'] < 1 or config['year_start'] > config['year_end']:
-        flash('Need at least 1 paper per journal and a start year no later than the end year.')
+    try:
+        config = {
+            "num_samples": int(request.form.get('num_samples', DEFAULT_CONFIG['num_samples'])),
+            "year_start": int(request.form.get('year_start', DEFAULT_CONFIG['year_start'])),
+            "year_end": int(request.form.get('year_end', DEFAULT_CONFIG['year_end'])),
+            "mine_pdfs": 'mine_pdfs' in request.form,
+        }
+    except (TypeError, ValueError):
+        flash('Sample count and publication years must be whole numbers.')
+        return redirect(url_for('index'))
+
+    valid_samples = 1 <= config['num_samples'] <= MAX_SAMPLES_PER_JOURNAL
+    valid_years = (MIN_PUBLICATION_YEAR <= config['year_start'] <= config['year_end']
+                   <= MAX_PUBLICATION_YEAR)
+    if not valid_samples or not valid_years:
+        flash(f'Use 1–{MAX_SAMPLES_PER_JOURNAL} papers per journal and years from '
+              f'{MIN_PUBLICATION_YEAR} to {MAX_PUBLICATION_YEAR}, with the start year no later than the end year.')
         return redirect(url_for('index'))
     save_config(config)
     flash('Configuration saved successfully!')

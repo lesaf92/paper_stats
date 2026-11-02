@@ -97,7 +97,10 @@ def full_date(field):
 def crossref_dates(work):
     """(received, accepted, published) from a Crossref work. Springer and Wiley deposit the history."""
     history = {a.get('name'): parse_date(str(a.get('value', ''))) for a in work.get('assertion', [])}
-    published = full_date(work.get('published-online')) or full_date(work.get('created'))
+    published = (full_date(work.get('published-online'))
+                 or full_date(work.get('published-print'))
+                 or full_date(work.get('published'))
+                 or full_date(work.get('issued')))
     return history.get('received'), history.get('accepted'), published
 
 

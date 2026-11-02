@@ -56,6 +56,10 @@
                     {% endfor %}
                     {% endwith %}
 
+                    {% if read_only %}
+                    <p class="text-center text-muted mb-0">Read-only copy of the latest results. Run Paper Stats
+                        locally to analyze other journals.</p>
+                    {% else %}
                     <form method="POST" action="/run">
                         <div class="d-grid">
                             <button type="submit" class="btn btn-primary btn-lg" {% if job.running %}disabled{% endif %}>
@@ -63,6 +67,7 @@
                             </button>
                         </div>
                     </form>
+                    {% endif %}
 
                     <div id="progress-container" class="mt-3" {% if not job.running %}hidden{% endif %}>
                         <p class="text-center text-muted mb-1" id="progress-text">{{ job.message }}</p>
@@ -111,8 +116,8 @@
                         <p class="text-muted small">
                             <strong>Measured</strong> = received → accepted, as printed by the journal (Crossref
                             article history, or the first page of the arXiv PDF).
-                            <strong>Proxy</strong> = first arXiv version → journal publication; only a rough upper
-                            bound, since many authors post after acceptance.
+                            <strong>Proxy</strong> = first arXiv version → journal publication; its direction depends
+                            on when authors post relative to journal submission and acceptance.
                         </p>
                         <table class="table table-sm table-hover align-middle">
                             <thead class="table-light">
@@ -195,22 +200,23 @@
                     <!-- Configuration Tab -->
                     <div class="tab-pane fade" id="config" role="tabpanel" aria-labelledby="config-tab">
                         <form action="/save_config" method="POST" class="mb-5">
+                            <fieldset {% if read_only %}disabled{% endif %}>
                             <h4>Analysis Parameters</h4>
                             <div class="mb-3">
                                 <label for="num_samples" class="form-label">Number of Papers per Journal</label>
                                 <input type="number" class="form-control" id="num_samples" name="num_samples"
-                                    value="{{ config.num_samples }}" min="1">
+                                    value="{{ config.num_samples }}" min="1" max="{{ max_samples }}">
                             </div>
                             <div class="row mb-3">
                                 <div class="col">
                                     <label for="year_start" class="form-label">Published From (Year)</label>
                                     <input type="number" class="form-control" id="year_start" name="year_start"
-                                        value="{{ config.year_start }}">
+                                        value="{{ config.year_start }}" min="{{ min_year }}" max="{{ max_year }}">
                                 </div>
                                 <div class="col">
                                     <label for="year_end" class="form-label">Published Until (Year)</label>
                                     <input type="number" class="form-control" id="year_end" name="year_end"
-                                        value="{{ config.year_end }}">
+                                        value="{{ config.year_end }}" min="{{ min_year }}" max="{{ max_year }}">
                                 </div>
                             </div>
                             <div class="form-check mb-3">
@@ -221,7 +227,10 @@
                                     slower, about 3 s per paper the first time)
                                 </label>
                             </div>
+                            {% if not read_only %}
                             <button type="submit" class="btn btn-success">Save Configuration</button>
+                            {% endif %}
+                            </fieldset>
                         </form>
 
                         <div class="mt-4 text-start">
