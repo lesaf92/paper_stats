@@ -30,10 +30,15 @@ def test_crossref_dates():
                 'published-online': {'date-parts': [[2026, 3, 31]]}}
     wiley = {'assertion': [{'name': 'received', 'value': '2023-12-07'}, {'name': 'accepted', 'value': '2025-02-16'}],
              'published-online': {'date-parts': [[2025, 3, 7]]}}
-    ieee = {'created': {'date-parts': [[2026, 2, 17]]}, 'published-print': {'date-parts': [[2026]]}}
+    ieee = {'created': {'date-parts': [[2026, 2, 17]]},
+            'published-print': {'date-parts': [[2025, 12, 4]]}}
+    created_only = {'created': {'date-parts': [[2026, 2, 17]]}}
+    issued = {'created': {'date-parts': [[2026, 2, 17]]}, 'issued': {'date-parts': [[2024, 6, 2]]}}
     assert crossref_dates(springer) == ('2025-05-16', '2025-12-31', '2026-03-31')
     assert crossref_dates(wiley) == ('2023-12-07', '2025-02-16', '2025-03-07')
-    assert crossref_dates(ieee) == (None, None, '2026-02-17')
+    assert crossref_dates(ieee) == (None, None, '2025-12-04')
+    assert crossref_dates(created_only) == (None, None, None)
+    assert crossref_dates(issued) == (None, None, '2024-06-02')
 
 
 def test_venue_and_rows():

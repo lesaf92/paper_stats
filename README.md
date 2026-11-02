@@ -53,7 +53,7 @@ A virtual environment stops working if its folder is moved or renamed, because i
 
 Open http://127.0.0.1:5000 and click **Fetch Data & Run Analysis**. The progress bar shows which journal is being processed.
 
-The first run is slow on purpose. arXiv asks for one request every 3 seconds, and each IEEE paper needs its PDF downloaded. With the bundled 12 journals × 25 papers it took 32 minutes. Lookups are cached in `cache.json`, so a rerun took under 2 minutes and only fetches new papers.
+The first run is slow on purpose. arXiv asks for one request every 3 seconds, and each IEEE paper needs its PDF downloaded. A 12-journal × 25-paper run took 32 minutes. Lookups are cached in `cache.json`, so a rerun took under 2 minutes and only fetches new papers.
 
 ### Environment variables
 
@@ -63,6 +63,7 @@ The first run is slow on purpose. arXiv asks for one request every 3 seconds, an
 | `FLASK_DEBUG` | off | `1` enables the Werkzeug debugger. Never combine it with `HOST=0.0.0.0`: the debugger runs arbitrary code |
 | `SECRET_KEY` | random per process | Flask session key (only used for flash messages) |
 | `CROSSREF_MAILTO` | empty | Your email, sent to Crossref so it puts you in its more reliable "polite" pool |
+| `READ_ONLY` | off | `1` serves the saved results only: no run button, POST requests get 403. Automatic on Vercel |
 
 ## Configuration
 
@@ -70,8 +71,8 @@ The first run is slow on purpose. arXiv asks for one request every 3 seconds, an
 
 | Key | Meaning |
 |---|---|
-| `num_samples` | Usable papers per journal (measured or proxy) |
-| `year_start`, `year_end` | Journal publication year range, inclusive |
+| `num_samples` | Usable papers per journal (measured or proxy), from 1 to 100 |
+| `year_start`, `year_end` | Journal publication year range, inclusive; 1900 through next year |
 | `mine_pdfs` | Read dates from arXiv PDFs when Crossref has none. Needed for IEEE journals |
 
 `list_of_journals.txt` holds one journal per line. Use the journal's official title, because it must match Crossref's.
@@ -109,9 +110,35 @@ Each row has the same fields as the CSV.
 
 ```bash
 venv/bin/python test_collector.py
+venv/bin/python test_server.py
 ```
 
-The checks run offline against real footnote and Crossref samples. They are plain `assert` functions, so `pytest` also picks them up.
+The checks run offline against real footnote and Crossref samples, plus the Flask read-only routes and configuration bounds. They are plain `assert` functions, so `pytest` also picks them up.
+
+## Publishing on Vercel
+
+The public site is a **read-only copy of your last local run**. The analysis can't run on Vercel: a run takes 2 to 30 minutes, a Vercel function lives at most 300 seconds on the Hobby plan, and nothing it writes is kept. When Vercel's `VERCEL=1` variable is set, the app hides the run and save buttons, answers POST requests with 403, and serves the committed `results.json`. Set `READ_ONLY=1` to get the same behaviour on any other host.
+
+Vercel finds the Flask `app` in `server.py` without extra configuration. `.vercelignore` limits the upload to the files the site needs.
+
+**First deployment**, from the project folder:
+
+```bash
+npm install -g vercel                     # Vercel CLI, needs Node.js
+vercel login
+vercel --prod                             # accept the defaults; it creates and links the project
+vercel domains add paper-stats.lesaf.cc   # prints the DNS record to create
+```
+
+Then, at the DNS provider for `lesaf.cc`, add the record Vercel printed. Usually that is a `CNAME` named `paper-stats` pointing to `cname.vercel-dns.com`. Vercel issues the HTTPS certificate once the record propagates. `vercel domains inspect paper-stats.lesaf.cc` shows the progress.
+
+**Publishing new results:** run the analysis locally, then deploy again:
+
+```bash
+vercel --prod
+```
+
+If the GitHub repository is connected to the Vercel project (Project → Settings → Git), commit and push `results.json` instead. Every push to `main` redeploys.
 
 ## Files
 
@@ -121,10 +148,13 @@ The checks run offline against real footnote and Crossref samples. They are plai
 | `server.py` | Flask app: background job, routes, CSV export |
 | `templates/index.html` | UI (Bootstrap + Plotly) |
 | `test_collector.py` | Offline checks: `venv/bin/python test_collector.py` |
+| `test_server.py` | Flask route and configuration checks: `venv/bin/python test_server.py` |
 | `algorithm.md` | Flowchart of the method, written for a paper's methodology section |
 | `CHANGELOG.md` | Release notes |
 | `list_of_journals.txt`, `config.json` | Inputs |
-| `cache.json`, `results.json` | Generated and not committed: lookup cache and last results. Delete `cache.json` to force a refetch |
+| `results.json` | Last run's results. Committed, because it is what the website serves |
+| `cache.json` | Generated, not committed: lookup cache. Delete it to force a refetch |
+| `.vercelignore` | The files uploaded to Vercel |
 
 ## Limitations
 
